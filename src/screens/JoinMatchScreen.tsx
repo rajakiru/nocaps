@@ -1,24 +1,36 @@
 import { useState } from 'react';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { colors, fontSize, spacing } from '../theme';
+import { getMatch } from '../api';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'JoinMatch'>;
 
 export default function JoinMatchScreen({ navigation }: Props) {
   const [code, setCode] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleJoin = () => {
+  const handleJoin = async () => {
     if (code.trim().length < 6) return;
-    // In Phase 3, this will validate against the backend.
-    // For now, navigate with placeholder match info.
-    navigation.navigate('CameraRole', {
-      matchTitle: 'Live Match',
-      matchCode: code.toUpperCase(),
-      teamA: 'Team A',
-      teamB: 'Team B',
-    });
+    setLoading(true);
+    try {
+      const match = await getMatch(code);
+      if (!match) {
+        Alert.alert('Not Found', 'No match found with that code.');
+        return;
+      }
+      navigation.navigate('CameraRole', {
+        matchTitle: match.title,
+        matchCode: match.code,
+        teamA: match.teamA,
+        teamB: match.teamB,
+      });
+    } catch {
+      Alert.alert('Error', 'Could not connect to server. Is it running?');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

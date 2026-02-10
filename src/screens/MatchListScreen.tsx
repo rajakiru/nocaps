@@ -1,50 +1,42 @@
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { colors, fontSize, spacing } from '../theme';
+import { listMatches, type MatchDTO } from '../api';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MatchList'>;
 
-// Mock data — replaced by backend in Phase 3
-const MOCK_MATCHES = [
-  {
-    id: '1',
-    title: 'CMU vs Pitt',
-    teamA: 'CMU Tartans',
-    teamB: 'Pitt Panthers',
-    sport: 'Basketball',
-    venue: 'Gesling Stadium',
-    isLive: true,
-    cameras: 3,
-  },
-  {
-    id: '2',
-    title: 'Intramural Finals',
-    teamA: 'Team Alpha',
-    teamB: 'Team Bravo',
-    sport: 'Soccer',
-    venue: 'Cut Field',
-    isLive: true,
-    cameras: 2,
-  },
-  {
-    id: '3',
-    title: 'Spring Invitational',
-    teamA: 'CMU',
-    teamB: 'Case Western',
-    sport: 'Volleyball',
-    venue: 'Wiegand Gym',
-    isLive: false,
-    cameras: 0,
-  },
-];
-
 export default function MatchListScreen({ navigation }: Props) {
+  const [matches, setMatches] = useState<MatchDTO[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      setLoading(true);
+      listMatches()
+        .then((data) => { if (active) setMatches(data); })
+        .catch(() => { if (active) setMatches([]); })
+        .finally(() => { if (active) setLoading(false); });
+      return () => { active = false; };
+    }, [])
+  );
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <FlatList
-        data={MOCK_MATCHES}
-        keyExtractor={(item) => item.id}
+        data={matches}
+        keyExtractor={(item) => item.code}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
           <TouchableOpacity
@@ -59,9 +51,11 @@ export default function MatchListScreen({ navigation }: Props) {
             }
           >
             <View style={styles.cardHeader}>
-              <View style={styles.sportBadge}>
-                <Text style={styles.sportText}>{item.sport}</Text>
-              </View>
+              {item.sport ? (
+                <View style={styles.sportBadge}>
+                  <Text style={styles.sportText}>{item.sport}</Text>
+                </View>
+              ) : null}
               {item.isLive && (
                 <View style={styles.liveBadge}>
                   <View style={styles.liveDot} />
@@ -72,17 +66,19 @@ export default function MatchListScreen({ navigation }: Props) {
 
             <Text style={styles.matchTitle}>{item.title}</Text>
             <Text style={styles.teams}>{item.teamA} vs {item.teamB}</Text>
-            <Text style={styles.venue}>{item.venue}</Text>
+            {item.venue ? <Text style={styles.venue}>{item.venue}</Text> : null}
 
-            {item.isLive && (
-              <Text style={styles.cameras}>{item.cameras} cameras broadcasting</Text>
+            {item.cameras.length > 0 && (
+              <Text style={styles.cameras}>
+                {item.cameras.length} camera{item.cameras.length !== 1 ? 's' : ''} broadcasting
+              </Text>
             )}
           </TouchableOpacity>
         )}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyText}>No active matches</Text>
-            <Text style={styles.emptyHint}>Matches will appear here when broadcasters go live</Text>
+            <Text style={styles.emptyHint}>Matches will appear here when broadcasters create them</Text>
           </View>
         }
       />
@@ -94,6 +90,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  center: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   list: {
     padding: spacing.lg,

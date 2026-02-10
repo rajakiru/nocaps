@@ -1,10 +1,11 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { colors, fontSize, spacing } from '../theme';
+import { joinMatchAsCamera, toggleStream, onMatchUpdated, type MatchDTO } from '../api';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Camera'>;
 type CameraFacing = 'front' | 'back';
@@ -13,8 +14,18 @@ export default function CameraScreen({ navigation, route }: Props) {
   const { matchTitle, matchCode, cameraRole, cameraNumber } = route.params;
   const [facing, setFacing] = useState<CameraFacing>('back');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [connectedCameras, setConnectedCameras] = useState(1);
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
+
+  // Join the match via Socket.IO on mount
+  useEffect(() => {
+    joinMatchAsCamera(matchCode, cameraNumber, cameraRole);
+    const unsubscribe = onMatchUpdated((match: MatchDTO) => {
+      setConnectedCameras(match.cameras.length);
+    });
+    return unsubscribe;
+  }, [matchCode, cameraNumber, cameraRole]);
 
   // Permission not yet determined
   if (!permission) {
@@ -55,8 +66,9 @@ export default function CameraScreen({ navigation, route }: Props) {
   };
 
   const toggleStreaming = () => {
-    setIsStreaming((prev) => !prev);
-    // In Phase 4, this will start/stop WebRTC streaming
+    const next = !isStreaming;
+    setIsStreaming(next);
+    toggleStream(matchCode, cameraNumber, next);
   };
 
   return (
@@ -132,7 +144,7 @@ export default function CameraScreen({ navigation, route }: Props) {
             {isStreaming ? 'Streaming to server...' : 'Ready to stream'}
           </Text>
           <Text style={styles.statusText}>
-            {facing === 'back' ? 'Rear cam' : 'Front cam'}
+            {connectedCameras} camera{connectedCameras !== 1 ? 's' : ''} connected
           </Text>
         </View>
       </SafeAreaView>

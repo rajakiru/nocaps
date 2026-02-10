@@ -11,19 +11,11 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { colors, fontSize, spacing } from '../theme';
+import { createMatch as apiCreateMatch } from '../api';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateMatch'>;
 
 const SPORTS = ['Basketball', 'Soccer', 'Football', 'Tennis', 'Volleyball', 'Baseball', 'Other'];
-
-function generateMatchCode(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let code = '';
-  for (let i = 0; i < 6; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code;
-}
 
 export default function CreateMatchScreen({ navigation }: Props) {
   const [title, setTitle] = useState('');
@@ -32,14 +24,22 @@ export default function CreateMatchScreen({ navigation }: Props) {
   const [sport, setSport] = useState('');
   const [venue, setVenue] = useState('');
   const [matchCode, setMatchCode] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!title.trim() || !teamA.trim() || !teamB.trim()) {
       Alert.alert('Missing Info', 'Please fill in match title and both team names.');
       return;
     }
-    const code = generateMatchCode();
-    setMatchCode(code);
+    setLoading(true);
+    try {
+      const match = await apiCreateMatch({ title, teamA, teamB, sport, venue });
+      setMatchCode(match.code);
+    } catch {
+      Alert.alert('Error', 'Could not create match. Is the server running?');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleContinue = () => {
@@ -132,8 +132,12 @@ export default function CreateMatchScreen({ navigation }: Props) {
         onChangeText={setVenue}
       />
 
-      <TouchableOpacity style={styles.primaryButton} onPress={handleCreate}>
-        <Text style={styles.primaryButtonText}>Create Match</Text>
+      <TouchableOpacity
+        style={[styles.primaryButton, loading && { opacity: 0.5 }]}
+        onPress={handleCreate}
+        disabled={loading}
+      >
+        <Text style={styles.primaryButtonText}>{loading ? 'Creating...' : 'Create Match'}</Text>
       </TouchableOpacity>
     </ScrollView>
   );

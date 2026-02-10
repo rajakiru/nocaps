@@ -21,7 +21,7 @@ nocaps turns regular smartphones into a multi-camera sports broadcast system. Pl
 - **Mobile App**: React Native + Expo SDK 54, TypeScript
 - **Camera**: expo-camera v17
 - **Navigation**: React Navigation (native stack)
-- **Backend**: Node.js + Socket.IO (coming soon)
+- **Backend**: Node.js + Express + Socket.IO
 - **Streaming**: WebRTC (coming soon)
 
 ## Getting Started
@@ -35,32 +35,46 @@ nocaps turns regular smartphones into a multi-camera sports broadcast system. Pl
 
 ```bash
 # Clone the repo
-git clone https://github.com/rajakiru/nocap.git
-cd nocap
+git clone https://github.com/rajakiru/nocaps.git
+cd nocaps
 
-# Install dependencies
+# Install app dependencies
 npm install
 
-# Start the dev server
+# Install server dependencies
+cd server
+npm install
+cd ..
+```
+
+### Running
+
+You need two terminals:
+
+**Terminal 1 — Start the backend:**
+```bash
+cd server
+npm run dev
+```
+
+**Terminal 2 — Start the app:**
+```bash
 npx expo start
 ```
 
-### Running the app
+Then scan the QR code with Expo Go on your phone.
 
-- **On your phone**: Scan the QR code with Expo Go
-- **iOS Simulator**: Press `i` (requires Xcode)
-- **Android Emulator**: Press `a` (requires Android Studio)
-- **Web**: Press `w` (camera features won't work in web)
+> **Note**: When testing on a real device, update the `SERVER_URL` in `src/api.ts` to your computer's local IP (e.g. `http://192.168.x.x:3000`) instead of `localhost`.
 
 ## Project Structure
 
 ```
-app/
 ├── App.tsx                         # Root — NavigationContainer + SafeAreaProvider
 ├── app.json                        # Expo config (dark theme, camera plugin)
 ├── assets/
 │   └── logo.png                    # nocaps logo
 ├── src/
+│   ├── api.ts                      # REST + Socket.IO client
 │   ├── theme.ts                    # Colors, spacing, font sizes
 │   ├── navigation/
 │   │   └── AppNavigator.tsx        # Stack navigator with typed routes
@@ -72,12 +86,23 @@ app/
 │       ├── CameraScreen.tsx        # Live camera preview + controls
 │       ├── MatchListScreen.tsx     # Browse live/upcoming matches
 │       └── ViewerScreen.tsx        # Watch the broadcast
+├── server/
+│   └── src/
+│       ├── index.ts                # Express + Socket.IO entry point
+│       ├── routes.ts               # REST API endpoints
+│       ├── socket.ts               # Socket.IO event handlers
+│       ├── matchStore.ts           # In-memory match/session store
+│       └── types.ts                # TypeScript interfaces
 ```
+
+## Server / API
+
+See [server/SERVER.md](server/SERVER.md) for full backend documentation — REST endpoints, Socket.IO events, testing instructions.
 
 ## Progress
 
 - [x] Phase 1: Navigation & screen wireframes
 - [x] Phase 2: Camera functionality (live preview, flip, permissions)
-- [ ] Phase 3: Backend (Node.js, sessions, real-time sync)
+- [x] Phase 3: Backend (Node.js, sessions, real-time sync)
 - [ ] Phase 4: Video streaming (WebRTC, HLS playback)
 - [ ] Phase 5: AI stitching & field calibration
