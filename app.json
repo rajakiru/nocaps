@@ -34,6 +34,13 @@
         {
           "cameraPermission": "nocaps needs camera access to broadcast"
         }
+      ],
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "nocaps needs camera access to broadcast live video",
+          "microphonePermission": "nocaps needs microphone access for live audio"
+        }
       ]
     ]
   }
