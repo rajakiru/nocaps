@@ -15,7 +15,7 @@ export type RootStackParamList = {
   CameraRole: { matchTitle: string; matchCode: string; teamA: string; teamB: string };
   Camera: { matchTitle: string; matchCode: string; cameraRole: string; cameraNumber: number };
   MatchList: undefined;
-  Viewer: { matchTitle: string; teamA: string; teamB: string };
+  Viewer: { matchTitle: string; matchCode: string; teamA: string; teamB: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();

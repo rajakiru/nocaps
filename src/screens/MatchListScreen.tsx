@@ -45,6 +45,7 @@ export default function MatchListScreen({ navigation }: Props) {
             onPress={() =>
               navigation.navigate('Viewer', {
                 matchTitle: item.title,
+                matchCode: item.code,
                 teamA: item.teamA,
                 teamB: item.teamB,
               })

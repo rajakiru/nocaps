@@ -3,9 +3,15 @@ import { io, Socket } from 'socket.io-client';
 // Change this to your server's IP when testing on a real device.
 // Use your computer's local IP (e.g. 192.168.x.x), not localhost,
 // since the phone is a separate device on the network.
-const SERVER_URL = 'http://localhost:3000';
+const SERVER_URL = 'http://10.0.0.105:3000';
 
 // --- REST API ---
+
+export interface CameraDTO {
+  number: number;
+  role: string;
+  isStreaming: boolean;
+}
 
 export interface MatchDTO {
   code: string;
@@ -16,7 +22,7 @@ export interface MatchDTO {
   venue: string;
   createdAt: string;
   isLive: boolean;
-  cameras: { number: number; role: string; isStreaming: boolean }[];
+  cameras: CameraDTO[];
 }
 
 export async function createMatch(data: {
@@ -84,4 +90,50 @@ export function onMatchUpdated(callback: (match: MatchDTO) => void) {
   return () => {
     getSocket().off('match-updated', callback);
   };
+}
+
+// --- WebRTC Signaling ---
+
+export function requestStream(matchCode: string, cameraNumber: number) {
+  getSocket().emit('webrtc-request-stream', { matchCode, cameraNumber });
+}
+
+export function sendOffer(viewerSocketId: string, cameraNumber: number, sdp: unknown) {
+  getSocket().emit('webrtc-offer', { viewerSocketId, cameraNumber, sdp });
+}
+
+export function sendAnswer(cameraSocketId: string, sdp: unknown) {
+  getSocket().emit('webrtc-answer', { cameraSocketId, sdp });
+}
+
+export function sendIceCandidate(targetSocketId: string, candidate: unknown) {
+  getSocket().emit('webrtc-ice-candidate', { targetSocketId, candidate });
+}
+
+export function onWebRTCIncomingRequest(
+  callback: (data: { viewerSocketId: string; matchCode: string; cameraNumber: number }) => void
+) {
+  getSocket().on('webrtc-incoming-request', callback);
+  return () => { getSocket().off('webrtc-incoming-request', callback); };
+}
+
+export function onWebRTCOffer(
+  callback: (data: { cameraSocketId: string; cameraNumber: number; sdp: unknown }) => void
+) {
+  getSocket().on('webrtc-offer', callback);
+  return () => { getSocket().off('webrtc-offer', callback); };
+}
+
+export function onWebRTCAnswer(
+  callback: (data: { viewerSocketId: string; sdp: unknown }) => void
+) {
+  getSocket().on('webrtc-answer', callback);
+  return () => { getSocket().off('webrtc-answer', callback); };
+}
+
+export function onWebRTCIceCandidate(
+  callback: (data: { senderSocketId: string; candidate: unknown }) => void
+) {
+  getSocket().on('webrtc-ice-candidate', callback);
+  return () => { getSocket().off('webrtc-ice-candidate', callback); };
 }
