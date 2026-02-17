@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>nocaps — Test Camera</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0D0D0D; color: #E0E0E0; padding: 20px; }
+    h1 { color: #3AAFA9; margin-bottom: 20px; font-size: 24px; }
+    .row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    label { color: #999; font-size: 13px; }
+    input, select, button { font-size: 16px; padding: 10px 14px; border-radius: 8px; border: 1px solid #333; background: #1A1A2E; color: #E0E0E0; }
+    input { width: 180px; }
+    select { width: 140px; }
+    button { background: #3AAFA9; color: #0D0D0D; font-weight: 700; border: none; cursor: pointer; }
+    button:hover { background: #2E8F8A; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    button.danger { background: #FF4D4D; color: #fff; }
+    button.stream { background: #FF4D4D; color: #fff; font-size: 18px; padding: 14px 32px; border-radius: 50px; }
+    button.stream.off { background: #333; color: #999; }
+    .controls { display: flex; gap: 16px; align-items: center; justify-content: center; margin: 16px 0; }
+    video { width: 100%; max-width: 640px; background: #1A1A2E; border-radius: 12px; transform: scaleX(-1); }
+    .live-badge { display: inline-block; background: rgba(255,77,77,0.9); color: #fff; font-size: 12px; font-weight: 800; padding: 4px 10px; border-radius: 6px; letter-spacing: 1px; margin-left: 8px; }
+    .cam-badge { display: inline-block; background: #3AAFA9; color: #0D0D0D; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 6px; margin-left: 8px; }
+    #log { background: #111; border: 1px solid #333; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 13px; height: 180px; overflow-y: auto; white-space: pre-wrap; margin-top: 12px; }
+    .log-info { color: #3AAFA9; }
+    .log-warn { color: #FFB347; }
+    .log-error { color: #FF4D4D; }
+    .status { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-left: 8px; }
+    .status.connected { background: rgba(58,175,169,0.2); color: #3AAFA9; }
+    .status.disconnected { background: rgba(255,77,77,0.2); color: #FF4D4D; }
+    .section { margin-bottom: 16px; }
+    .match-code { font-size: 28px; font-weight: 800; color: #3AAFA9; letter-spacing: 4px; margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <h1>nocaps test camera</h1>
+
+  <!-- Step 1: Create or join match -->
+  <div id="setupPanel">
+    <div class="section">
+      <strong>Create a new match</strong>
+      <div class="row" style="margin-top: 8px;">
+        <div class="field">
+          <label>Title</label>
+          <input id="titleInput" value="Test Match" />
+        </div>
+        <div class="field">
+          <label>Team A</label>
+          <input id="teamAInput" value="Team A" />
+        </div>
+        <div class="field">
+          <label>Team B</label>
+          <input id="teamBInput" value="Team B" />
+        </div>
+        <button onclick="createMatch()">Create Match</button>
+      </div>
+    </div>
+    <div class="section">
+      <strong>Or join existing match</strong>
+      <div class="row" style="margin-top: 8px;">
+        <div class="field">
+          <label>Match Code</label>
+          <input id="codeInput" placeholder="ABC123" maxlength="6" style="text-transform: uppercase;" />
+        </div>
+        <button onclick="joinExisting()">Join</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2: Camera role + streaming -->
+  <div id="cameraPanel" style="display:none;">
+    <div class="section">
+      <span id="matchTitleDisplay" style="font-weight:600;"></span>
+      <span class="cam-badge" id="camBadge"></span>
+      <span class="live-badge" id="liveBadge" style="display:none;">LIVE</span>
+      <span id="connStatus" class="status connected">connected</span>
+      <div class="match-code" id="matchCodeDisplay"></div>
+      <span style="color:#999; font-size:13px;">Share this code with viewers</span>
+    </div>
+
+    <video id="localVideo" autoplay playsinline muted></video>
+
+    <div class="controls">
+      <button class="stream off" id="streamBtn" onclick="toggleStream()">Start Stream</button>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>Camera</label>
+        <select id="camSelect">
+          <option value="1">CAM 1 — Main</option>
+          <option value="2">CAM 2 — Side</option>
+          <option value="3">CAM 3 — Close-up</option>
+          <option value="4">CAM 4 — Wide</option>
+        </select>
+      </div>
+      <button class="danger" onclick="leaveMatch()">Leave</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <label>Log</label>
+    <div id="log"></div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <script>
+    const SERVER = window.location.origin;
+    const ICE_SERVERS = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+    ];
+
+    let socket = null;
+    let localStream = null;
+    let matchCode = null;
+    let cameraNumber = 1;
+    let isStreaming = false;
+    const peerConnections = new Map();
+    const ROLES = { 1: 'Main', 2: 'Side', 3: 'Close-up', 4: 'Wide' };
+
+    function log(msg, level = 'info') {
+      const el = document.getElementById('log');
+      const entry = document.createElement('div');
+      entry.className = `log-${level}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      el.appendChild(entry);
+      el.scrollTop = el.scrollHeight;
+      console.log(msg);
+    }
+
+    async function startCamera() {
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 1280, height: 720, frameRate: 30 },
+          audio: true,
+        });
+        document.getElementById('localVideo').srcObject = localStream;
+        log('camera started');
+      } catch (err) {
+        log('camera access denied: ' + err.message, 'error');
+      }
+    }
+
+    async function createMatch() {
+      const title = document.getElementById('titleInput').value.trim() || 'Test Match';
+      const teamA = document.getElementById('teamAInput').value.trim() || 'Team A';
+      const teamB = document.getElementById('teamBInput').value.trim() || 'Team B';
+
+      try {
+        const res = await fetch(`${SERVER}/api/matches`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, teamA, teamB }),
+        });
+        const match = await res.json();
+        log(`created match: ${match.title} (${match.code})`);
+        joinAsCamera(match.code);
+      } catch (err) {
+        log('failed to create match: ' + err.message, 'error');
+      }
+    }
+
+    function joinExisting() {
+      const code = document.getElementById('codeInput').value.trim().toUpperCase();
+      if (!code) return;
+      joinAsCamera(code);
+    }
+
+    async function joinAsCamera(code) {
+      matchCode = code;
+      cameraNumber = parseInt(document.getElementById('camSelect').value);
+
+      await startCamera();
+
+      socket = io(SERVER, { transports: ['websocket'] });
+
+      socket.on('connect', () => {
+        log('socket connected: ' + socket.id);
+
+        socket.emit('join-match', {
+          code: matchCode,
+          cameraNumber,
+          cameraRole: ROLES[cameraNumber] || 'Main',
+        }, (resp) => {
+          if (resp.error) {
+            log('join error: ' + resp.error, 'error');
+            return;
+          }
+          log(`joined as CAM ${cameraNumber} in ${matchCode}`);
+          document.getElementById('setupPanel').style.display = 'none';
+          document.getElementById('cameraPanel').style.display = 'block';
+          document.getElementById('matchTitleDisplay').textContent = matchCode;
+          document.getElementById('matchCodeDisplay').textContent = matchCode;
+          document.getElementById('camBadge').textContent = `CAM ${cameraNumber}`;
+        });
+      });
+
+      socket.on('match-updated', (match) => {
+        log(`match updated — ${match.cameras.length} cameras, live: ${match.isLive}`);
+        document.getElementById('matchTitleDisplay').textContent = match.title;
+      });
+
+      // A viewer wants our stream
+      socket.on('webrtc-incoming-request', async (data) => {
+        if (data.cameraNumber !== cameraNumber) return;
+        if (!isStreaming || !localStream) return;
+
+        log(`viewer ${data.viewerSocketId.slice(0, 8)}... requested stream`);
+
+        const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        peerConnections.set(data.viewerSocketId, pc);
+
+        localStream.getTracks().forEach((track) => {
+          pc.addTrack(track, localStream);
+        });
+
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            socket.emit('webrtc-ice-candidate', {
+              targetSocketId: data.viewerSocketId,
+              candidate: event.candidate.toJSON(),
+            });
+          }
+        };
+
+        pc.oniceconnectionstatechange = () => {
+          log(`peer ${data.viewerSocketId.slice(0, 8)}... ICE: ${pc.iceConnectionState}`);
+          if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+            pc.close();
+            peerConnections.delete(data.viewerSocketId);
+          }
+        };
+
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          socket.emit('webrtc-offer', {
+            viewerSocketId: data.viewerSocketId,
+            cameraNumber,
+            sdp: pc.localDescription,
+          });
+          log('sent offer to viewer');
+        } catch (err) {
+          log('error creating offer: ' + err.message, 'error');
+        }
+      });
+
+      // Viewer answered our offer
+      socket.on('webrtc-answer', async (data) => {
+        const pc = peerConnections.get(data.viewerSocketId);
+        if (pc) {
+          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+          log('received answer from viewer');
+        }
+      });
+
+      // ICE candidate from viewer
+      socket.on('webrtc-ice-candidate', (data) => {
+        peerConnections.forEach((pc) => {
+          if (data.candidate) {
+            pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(() => {});
+          }
+        });
+      });
+
+      socket.on('disconnect', () => {
+        log('socket disconnected', 'warn');
+      });
+    }
+
+    function toggleStream() {
+      isStreaming = !isStreaming;
+      const btn = document.getElementById('streamBtn');
+      const badge = document.getElementById('liveBadge');
+
+      if (isStreaming) {
+        btn.textContent = 'Stop Stream';
+        btn.className = 'stream';
+        badge.style.display = 'inline-block';
+      } else {
+        btn.textContent = 'Start Stream';
+        btn.className = 'stream off';
+        badge.style.display = 'none';
+        // Close all peer connections
+        peerConnections.forEach((pc) => pc.close());
+        peerConnections.clear();
+      }
+
+      socket.emit('stream-toggle', { code: matchCode, cameraNumber, isStreaming });
+      log(`streaming: ${isStreaming}`);
+    }
+
+    function leaveMatch() {
+      isStreaming = false;
+      peerConnections.forEach((pc) => pc.close());
+      peerConnections.clear();
+      if (localStream) {
+        localStream.getTracks().forEach((t) => t.stop());
+        localStream = null;
+      }
+      if (socket) { socket.disconnect(); socket = null; }
+      document.getElementById('localVideo').srcObject = null;
+      document.getElementById('setupPanel').style.display = 'block';
+      document.getElementById('cameraPanel').style.display = 'none';
+      document.getElementById('liveBadge').style.display = 'none';
+      log('left match');
+    }
+  </script>
+</body>
+</html>

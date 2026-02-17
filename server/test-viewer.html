@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>nocaps — Test Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0D0D0D; color: #E0E0E0; padding: 20px; }
+    h1 { color: #3AAFA9; margin-bottom: 20px; font-size: 24px; }
+    .section { margin-bottom: 20px; }
+    label { display: block; margin-bottom: 6px; color: #999; font-size: 13px; }
+    input, select, button { font-size: 16px; padding: 10px 14px; border-radius: 8px; border: 1px solid #333; background: #1A1A2E; color: #E0E0E0; }
+    input { width: 200px; }
+    button { background: #3AAFA9; color: #0D0D0D; font-weight: 700; border: none; cursor: pointer; margin-right: 8px; }
+    button:hover { background: #2E8F8A; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    button.danger { background: #FF4D4D; color: #fff; }
+    #log { background: #111; border: 1px solid #333; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 13px; height: 200px; overflow-y: auto; white-space: pre-wrap; margin-top: 12px; }
+    .log-entry { margin-bottom: 2px; }
+    .log-info { color: #3AAFA9; }
+    .log-warn { color: #FFB347; }
+    .log-error { color: #FF4D4D; }
+    video { width: 100%; max-width: 640px; background: #1A1A2E; border-radius: 12px; margin-top: 12px; }
+    .cameras { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .cam-btn { padding: 8px 16px; border-radius: 8px; background: #1A1A2E; border: 1px solid #333; color: #E0E0E0; cursor: pointer; font-size: 14px; }
+    .cam-btn.active { background: #3AAFA9; color: #0D0D0D; border-color: #3AAFA9; }
+    .cam-btn.streaming::after { content: " LIVE"; color: #FF4D4D; font-weight: 700; font-size: 11px; }
+    .status { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-left: 8px; }
+    .status.connected { background: rgba(58,175,169,0.2); color: #3AAFA9; }
+    .status.disconnected { background: rgba(255,77,77,0.2); color: #FF4D4D; }
+  </style>
+</head>
+<body>
+  <h1>nocaps test viewer</h1>
+
+  <div class="section">
+    <label>Match Code</label>
+    <input id="codeInput" placeholder="e.g. ABC123" maxlength="6" style="text-transform: uppercase;" />
+    <button id="joinBtn" onclick="joinMatch()">Join</button>
+    <button id="leaveBtn" onclick="leaveMatch()" class="danger" style="display:none;">Leave</button>
+    <span id="connStatus" class="status disconnected">disconnected</span>
+  </div>
+
+  <div class="section" id="matchInfo" style="display:none;">
+    <strong id="matchTitle"></strong>
+    <span id="matchTeams" style="color:#999; margin-left: 8px;"></span>
+  </div>
+
+  <div class="section" id="cameraSection" style="display:none;">
+    <label>Cameras</label>
+    <div class="cameras" id="cameraList"></div>
+  </div>
+
+  <div class="section">
+    <video id="remoteVideo" autoplay playsinline></video>
+  </div>
+
+  <div class="section">
+    <label>Log</label>
+    <div id="log"></div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <script>
+    const SERVER = window.location.origin;
+    let socket = null;
+    let pc = null;
+    let currentMatch = null;
+    let selectedCam = null;
+
+    const ICE_SERVERS = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+    ];
+
+    function log(msg, level = 'info') {
+      const el = document.getElementById('log');
+      const entry = document.createElement('div');
+      entry.className = `log-entry log-${level}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      el.appendChild(entry);
+      el.scrollTop = el.scrollHeight;
+      console.log(msg);
+    }
+
+    function setStatus(status) {
+      const el = document.getElementById('connStatus');
+      el.textContent = status;
+      el.className = `status ${status === 'connected' ? 'connected' : 'disconnected'}`;
+    }
+
+    function joinMatch() {
+      const code = document.getElementById('codeInput').value.trim().toUpperCase();
+      if (!code) return;
+
+      socket = io(SERVER, { transports: ['websocket'] });
+
+      socket.on('connect', () => {
+        log('socket connected: ' + socket.id);
+        setStatus('connected');
+
+        socket.emit('watch-match', { code }, (resp) => {
+          if (resp.error) {
+            log('error: ' + resp.error, 'error');
+            return;
+          }
+          currentMatch = resp.match;
+          log(`joined match: ${currentMatch.title} (${currentMatch.code})`);
+          document.getElementById('matchInfo').style.display = 'block';
+          document.getElementById('matchTitle').textContent = currentMatch.title;
+          document.getElementById('matchTeams').textContent = `${currentMatch.teamA} vs ${currentMatch.teamB}`;
+          document.getElementById('cameraSection').style.display = 'block';
+          document.getElementById('joinBtn').style.display = 'none';
+          document.getElementById('leaveBtn').style.display = 'inline';
+          renderCameras(currentMatch.cameras);
+        });
+      });
+
+      socket.on('match-updated', (match) => {
+        currentMatch = match;
+        log(`match updated — ${match.cameras.length} cameras, live: ${match.isLive}`);
+        renderCameras(match.cameras);
+      });
+
+      socket.on('webrtc-offer', async (data) => {
+        log(`received offer from CAM ${data.cameraNumber}`);
+        if (!pc) return;
+
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socket.emit('webrtc-answer', { cameraSocketId: data.cameraSocketId, sdp: pc.localDescription });
+          log('sent answer');
+        } catch (err) {
+          log('error handling offer: ' + err.message, 'error');
+        }
+      });
+
+      socket.on('webrtc-ice-candidate', (data) => {
+        if (pc && data.candidate) {
+          pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(() => {});
+        }
+      });
+
+      socket.on('disconnect', () => {
+        log('socket disconnected', 'warn');
+        setStatus('disconnected');
+      });
+    }
+
+    function leaveMatch() {
+      if (pc) { pc.close(); pc = null; }
+      if (socket) { socket.disconnect(); socket = null; }
+      currentMatch = null;
+      selectedCam = null;
+      document.getElementById('remoteVideo').srcObject = null;
+      document.getElementById('matchInfo').style.display = 'none';
+      document.getElementById('cameraSection').style.display = 'none';
+      document.getElementById('joinBtn').style.display = 'inline';
+      document.getElementById('leaveBtn').style.display = 'none';
+      setStatus('disconnected');
+      log('left match');
+    }
+
+    function renderCameras(cameras) {
+      const container = document.getElementById('cameraList');
+      container.innerHTML = '';
+      cameras.forEach((cam) => {
+        const btn = document.createElement('button');
+        btn.className = 'cam-btn' + (cam.isStreaming ? ' streaming' : '') + (selectedCam === cam.number ? ' active' : '');
+        btn.textContent = `CAM ${cam.number} — ${cam.role}`;
+        btn.disabled = !cam.isStreaming;
+        btn.onclick = () => connectToCamera(cam.number);
+        container.appendChild(btn);
+      });
+    }
+
+    function connectToCamera(camNumber) {
+      if (pc) { pc.close(); pc = null; }
+      selectedCam = camNumber;
+      renderCameras(currentMatch.cameras);
+
+      log(`connecting to CAM ${camNumber}...`);
+
+      pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+
+      pc.ontrack = (event) => {
+        log('received remote track: ' + event.track.kind);
+        document.getElementById('remoteVideo').srcObject = event.streams[0];
+      };
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('webrtc-ice-candidate', {
+            targetSocketId: '', // server routes by socket rooms
+            candidate: event.candidate.toJSON(),
+          });
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        log('ICE state: ' + pc.iceConnectionState);
+        if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+          log('stream connected!', 'info');
+        }
+        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+          log('stream disconnected', 'warn');
+        }
+      };
+
+      // Tell server we want this camera's stream
+      socket.emit('webrtc-request-stream', { matchCode: currentMatch.code, cameraNumber: camNumber });
+      log(`requested stream from CAM ${camNumber}`);
+    }
+  </script>
+</body>
+</html>
