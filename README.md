@@ -19,17 +19,17 @@ nocaps turns regular smartphones into a multi-camera sports broadcast system. Pl
 ## Tech Stack
 
 - **Mobile App**: React Native + Expo SDK 54, TypeScript
-- **Camera**: expo-camera v17
+- **Video**: react-native-webrtc (P2P streaming via WebRTC)
 - **Navigation**: React Navigation (native stack)
-- **Backend**: Node.js + Express + Socket.IO
-- **Streaming**: WebRTC (coming soon)
+- **Backend**: Node.js + Express + Socket.IO (signaling relay)
+- **Web Test Pages**: Browser-based camera + viewer for testing
 
 ## Getting Started
 
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) v18+ (we use v22)
-- [Expo Go](https://expo.dev/go) app on your phone (iOS or Android)
+- Xcode (for iOS) or Android Studio (for Android) — required for native WebRTC build
 
 ### Setup
 
@@ -59,12 +59,24 @@ npm run dev
 
 **Terminal 2 — Start the app:**
 ```bash
-npx expo start
+npx expo prebuild --clean
+npx expo run:ios        # or npx expo run:android
 ```
 
-Then scan the QR code with Expo Go on your phone.
+> **Note**: This app uses react-native-webrtc which requires a custom dev client (Expo Go won't work). You need Xcode or Android Studio installed.
 
-> **Note**: When testing on a real device, update the `SERVER_URL` in `src/api.ts` to your computer's local IP (e.g. `http://192.168.x.x:3000`) instead of `localhost`.
+> **Tip**: Update the `SERVER_URL` in `src/api.ts` to your computer's local IP (e.g. `http://192.168.x.x:3000`) when testing on a real device.
+
+### Web Test Pages (no build needed)
+
+You can test WebRTC streaming entirely in the browser:
+
+```
+http://localhost:3000/camera   — use laptop/phone webcam as a camera
+http://localhost:3000/viewer   — watch a live stream
+```
+
+Open the camera page, create a match, start streaming. Then open the viewer page in another tab, enter the match code, and watch.
 
 ## Project Structure
 
@@ -74,7 +86,8 @@ Then scan the QR code with Expo Go on your phone.
 ├── assets/
 │   └── logo.png                    # nocaps logo
 ├── src/
-│   ├── api.ts                      # REST + Socket.IO client
+│   ├── api.ts                      # REST + Socket.IO + WebRTC signaling client
+│   ├── webrtc.ts                   # ICE servers, peer connection helpers
 │   ├── theme.ts                    # Colors, spacing, font sizes
 │   ├── navigation/
 │   │   └── AppNavigator.tsx        # Stack navigator with typed routes
@@ -104,5 +117,5 @@ See [server/SERVER.md](server/SERVER.md) for full backend documentation — REST
 - [x] Phase 1: Navigation & screen wireframes
 - [x] Phase 2: Camera functionality (live preview, flip, permissions)
 - [x] Phase 3: Backend (Node.js, sessions, real-time sync)
-- [ ] Phase 4: Video streaming (WebRTC, HLS playback)
+- [x] Phase 4: WebRTC P2P video streaming + web test pages
 - [ ] Phase 5: AI stitching & field calibration
