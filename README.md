@@ -119,3 +119,86 @@ See [server/SERVER.md](server/SERVER.md) for full backend documentation — REST
 - [x] Phase 3: Backend (Node.js, sessions, real-time sync)
 - [x] Phase 4: WebRTC P2P video streaming + web test pages
 - [ ] Phase 5: AI stitching & field calibration
+
+---
+
+## Billiards Event Detection Engine
+
+A standalone computer vision pipeline for detecting ball-pocketing events in billiards videos. Built with **OpenCV + NumPy only** — no ML, no GPU required.
+
+### What it does
+
+- Detects when a ball goes into a pocket (goal) with exact timestamp
+- Tracks all balls across frames with trajectory trails
+- Outputs a full annotated video + a ±10s highlight clip around each goal
+- Works with any felt color (blue, red, green)
+
+### Folder structure
+
+```
+billiards_engine/     — Python pipeline source code
+billiards_dataset/    — game1 benchmark clips + annotations (4 clips)
+billiards_results/    — detected goals, highlight clips, still frames (game1)
+```
+
+### Setup
+
+```bash
+pip install opencv-python numpy
+```
+
+### Run on the included dataset (blue felt)
+
+```bash
+# Run goal detection on one clip
+python -m billiards_engine.goal_pipeline --clip game1_clip3
+
+# Run full pipeline (ball tracking + goals) on one clip
+python -m billiards_engine.main --clip game1_clip3
+
+# Run all 4 game1 clips
+python -m billiards_engine.run_all
+```
+
+### Run on your own video (red felt table)
+
+```bash
+# Full pipeline — ball tracking + goal detection
+python -m billiards_engine.run_full \
+  --input /path/to/video.MOV \
+  --felt red
+
+# Trim to first 60 seconds before processing
+python -m billiards_engine.run_full \
+  --input /path/to/video.MOV \
+  --felt red \
+  --start 0 --end 60
+```
+
+### Pocket annotation
+
+On first run an interactive window opens. **Click once on each of the 6 pocket centers** in order (top-left → top-mid → top-right → bottom-left → bottom-mid → bottom-right), then press **Enter**. Positions are saved and reloaded automatically on future runs.
+
+### Output
+
+```
+events/<clip>/
+├── <clip>_annotated.mp4          full video with ball tracking + pocket circles
+├── goals.json                     event list with pocket, frame, timestamp
+└── goal_frame<N>_<pocket>/
+    ├── goal_clip.mp4              ±10s highlight clip
+    ├── EVENT_frame<N>.png
+    ├── pre_*f_frame*.png          frames before goal
+    └── post_*f_frame*.png         frames after goal
+```
+
+### Game1 results
+
+| Clip | Pocket | Time |
+|---|---|---|
+| game1_clip1 | Bottom-Right | 2.50s |
+| game1_clip2 | Top-Right | 3.00s |
+| game1_clip3 | Bottom-Left | 1.07s |
+| game1_clip4 | Bottom-Left | 2.37s |
+
+See [`billiards_engine/README.md`](billiards_engine/README.md) for full documentation.
