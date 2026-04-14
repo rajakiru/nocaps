@@ -1,10 +1,12 @@
 #!/bin/bash
 #SBATCH --job-name=nocaps_train
 #SBATCH --partition=RM-shared
+#SBATCH --account=cis250224p
+#SBATCH --qos=rm
 #SBATCH --time=04:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=16G
+#SBATCH --mem=15G
 #SBATCH --output=logs/train_%j.log
 #SBATCH --error=logs/train_%j.err
 
