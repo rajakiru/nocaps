@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:v100-32:1
 #SBATCH --time=04:00:00
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=5
 #SBATCH --mem=32G
 #SBATCH --output=logs/train_%j.log
 #SBATCH --error=logs/train_%j.err
@@ -48,7 +48,7 @@ python scripts/train_yolo.py \
     --batch       32 \
     --imgsz       640 \
     --device      0 \
-    --workers     8 \
+    --workers     5 \
     --patience    30 \
     --project     runs/train \
     --name        billiards_v1 \
