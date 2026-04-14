@@ -1,10 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=nocaps_train
-#SBATCH --partition=GPU-shared
-#SBATCH --gres=gpu:v100-32:1
+#SBATCH --partition=RM-shared
 #SBATCH --time=04:00:00
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=5
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --output=logs/train_%j.log
 #SBATCH --error=logs/train_%j.err
@@ -47,8 +46,8 @@ python scripts/train_yolo.py \
     --epochs      150 \
     --batch       32 \
     --imgsz       640 \
-    --device      0 \
-    --workers     5 \
+    --device      cpu \
+    --workers     8 \
     --patience    30 \
     --project     runs/train \
     --name        billiards_v1 \
