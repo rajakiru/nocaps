@@ -11,12 +11,12 @@
 
 # ── Environment ────────────────────────────────────────────────────────────────
 source ~/.bashrc
-conda activate /ocean/projects/${PROJECT}/nadayanu/envs/nocaps
+conda activate /ocean/projects/cis250224p/nadayanu/envs/nocaps
 
 # Fail fast on any error
 set -e
 
-REPO_ROOT="/ocean/projects/${PROJECT}/nadayanu/nocaps"
+REPO_ROOT="/ocean/projects/cis250224p/nadayanu/nocaps"
 cd "${REPO_ROOT}"
 
 mkdir -p logs models
