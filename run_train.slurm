@@ -4,7 +4,7 @@
 #SBATCH --time=04:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
+#SBATCH --mem=16G
 #SBATCH --output=logs/train_%j.log
 #SBATCH --error=logs/train_%j.err
 
