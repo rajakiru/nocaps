@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --job-name=nocaps_train
-#SBATCH --partition=RM-shared
+#SBATCH --partition=GPU-shared
 #SBATCH --account=cis250224p
-#SBATCH --qos=rm
-#SBATCH --time=04:00:00
+#SBATCH --gres=gpu:v100-32:1
+#SBATCH --time=02:00:00
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=15G
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=32G
 #SBATCH --output=logs/train_%j.log
 #SBATCH --error=logs/train_%j.err
 
@@ -46,12 +46,11 @@ python scripts/train_yolo.py \
     --data        yolo_dataset/data.yaml \
     --model-size  s \
     --epochs      150 \
-    --batch       32 \
+    --batch       16 \
     --imgsz       640 \
-    --device      cpu \
-    --workers     8 \
+    --workers     4 \
     --patience    30 \
-    --project     runs/train \
+    --project     /ocean/projects/cis250224p/nadayanu/nocaps/runs/train \
     --name        billiards_v1 \
     --out         models/best.pt
 
