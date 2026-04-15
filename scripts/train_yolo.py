@@ -41,6 +41,8 @@ def main() -> None:
                         help="YOLOv8 variant: n=nano s=small m=medium (default: n)")
     parser.add_argument("--pretrained",  default=None, type=Path,
                         help="Start from this checkpoint instead of the ImageNet pretrained weights")
+    parser.add_argument("--resume",      action="store_true",
+                        help="Resume from last.pt in --project/--name/weights/ if it exists")
     parser.add_argument("--epochs",      default=100, type=int)
     parser.add_argument("--batch",       default=16,  type=int)
     parser.add_argument("--imgsz",       default=640, type=int)
@@ -72,8 +74,14 @@ def main() -> None:
             "  pip install ultralytics"
         )
 
-    # Choose starting checkpoint
-    if args.pretrained and args.pretrained.exists():
+    # Check for last.pt to resume from
+    last_pt = Path(args.project) / args.name / "weights" / "last.pt"
+    resuming = args.resume and last_pt.exists()
+
+    if resuming:
+        ckpt = str(last_pt)
+        print(f"  Resuming from: {ckpt}")
+    elif args.pretrained and args.pretrained.exists():
         ckpt = str(args.pretrained)
         print(f"  Starting from custom checkpoint: {ckpt}")
     else:
@@ -88,22 +96,25 @@ def main() -> None:
     print(f"  Device   : '{args.device}' (blank = auto)")
     print(f"  Output   : {args.project}/{args.name}\n")
 
-    train_kwargs = dict(
-        data      = str(data_yaml),
-        epochs    = args.epochs,
-        batch     = args.batch,
-        imgsz     = args.imgsz,
-        workers   = args.workers,
-        project   = str(args.project),
-        name      = args.name,
-        patience  = args.patience,
-        exist_ok  = True,
-        verbose   = True,
-    )
-    if args.device != "":
-        train_kwargs["device"] = args.device
-
-    results = model.train(**train_kwargs)
+    if resuming:
+        # YOLO native resume: restores optimizer state + epoch counter
+        results = model.train(resume=True)
+    else:
+        train_kwargs = dict(
+            data      = str(data_yaml),
+            epochs    = args.epochs,
+            batch     = args.batch,
+            imgsz     = args.imgsz,
+            workers   = args.workers,
+            project   = str(args.project),
+            name      = args.name,
+            patience  = args.patience,
+            exist_ok  = True,
+            verbose   = True,
+        )
+        if args.device != "":
+            train_kwargs["device"] = args.device
+        results = model.train(**train_kwargs)
 
     # Copy best checkpoint to models/best.pt
     run_dir  = Path(args.project) / args.name
