@@ -3,7 +3,7 @@
 #SBATCH --partition=GPU-shared
 #SBATCH --account=cis250224p
 #SBATCH --gres=gpu:v100-32:1
-#SBATCH --time=02:00:00
+#SBATCH --time=06:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
@@ -13,6 +13,11 @@
 # ── Environment ────────────────────────────────────────────────────────────────
 source ~/.bashrc
 conda activate /ocean/projects/cis250224p/nadayanu/envs/nocaps
+
+# Fix PyTorch/CUDA mismatch: installed build requires CUDA 13 but nodes have 12.6
+# This is a no-op if the right version is already present.
+pip install -q --upgrade "torch==2.5.1" torchvision \
+    --index-url https://download.pytorch.org/whl/cu124
 
 # Fail fast on any error
 set -e
@@ -52,7 +57,8 @@ python scripts/train_yolo.py \
     --patience    30 \
     --project     /ocean/projects/cis250224p/nadayanu/nocaps/runs/train \
     --name        billiards_v1 \
-    --out         models/best.pt
+    --out         models/best.pt \
+    --resume
 
 echo ""
 echo "=== Done. Best checkpoint: ${REPO_ROOT}/models/best.pt ==="
