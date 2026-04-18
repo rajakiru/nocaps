@@ -16,6 +16,12 @@ Detects:
 pip install opencv-python numpy
 ```
 
+For YOLO inference with a trained Ultralytics model:
+
+```bash
+pip install ultralytics
+```
+
 Python 3.9+ required.
 
 ---
@@ -38,6 +44,26 @@ python -m billiards_engine.goal_pipeline --clip game1_clip3
 python -m billiards_engine.run_full \
   --input /path/to/video.MOV \
   --felt red
+```
+
+### Run on a custom video with a YOLOv8 model
+```bash
+python -m billiards_engine.run_full \
+  --input /path/to/video.MOV \
+  --felt red \
+  --detector yolo
+```
+
+By default, the YOLO path now points to `models/generic_ball_model.pt`. Use
+`--model-path` to override it.
+
+### Debug YOLO on one frame
+```bash
+python -m billiards_engine.debug_yolo_frame \
+  --input /path/to/video.MOV \
+  --frame 75 \
+  --felt red \
+  --conf 0.05
 ```
 
 ### Run on a custom video, trimmed to first 60 seconds
@@ -117,6 +143,7 @@ events/<clip_name>/
 | `goal_detector.py` | ROI-based background subtraction state machine |
 | `pocket_roi_selector.py` | Click-to-annotate pocket UI |
 | `opencv_detector.py` | Contour-based ball detector |
+| `yolo_detector.py` | Ultralytics YOLO-based ball detector |
 | `tracker.py` | Centroid nearest-neighbor tracker |
 | `trajectory_builder.py` | Smoothed velocity computation |
 | `event_detector.py` | Shot/collision/rail/pocket event logic |

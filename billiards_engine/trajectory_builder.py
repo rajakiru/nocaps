@@ -130,3 +130,8 @@ class TrajectoryBuilder:
         """Mean speed over last n velocity samples."""
         speeds = self.recent_speeds(track, n)
         return float(np.mean(speeds)) if speeds else 0.0
+
+    def max_recent_speed(self, track: Track, n: int = 10) -> float:
+        """Maximum speed over the last n velocity samples."""
+        speeds = self.recent_speeds(track, n)
+        return float(np.max(speeds)) if speeds else 0.0

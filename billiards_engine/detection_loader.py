@@ -28,6 +28,7 @@ class Detection:
     w: float
     h: float
     category: int      # 1=cue,2=8ball,3=solid,4=striped
+    confidence: float = 1.0
 
     @property
     def cx(self) -> float:

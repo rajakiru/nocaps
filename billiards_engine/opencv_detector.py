@@ -81,15 +81,23 @@ class OpenCVBallDetector(BallDetector):
 
         # ── 1. Crop to table ────────────────────────────────────────────
         roi = frame[ty: ty + th, tx: tx + tw]
+        roi = cv2.GaussianBlur(roi, (5, 5), 0)
         roi_hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 
         # ── 2. Ball mask = non-felt within the ROI ───────────────────────
         felt_mask = get_felt_mask(roi_hsv, self._felt)
         ball_mask = cv2.bitwise_not(felt_mask)
+        value = roi_hsv[:, :, 2]
+        sat = roi_hsv[:, :, 1]
+        glare_mask = cv2.inRange(value, 220, 255)
+        low_sat_mask = cv2.inRange(sat, 0, 35)
+        glare_mask = cv2.bitwise_and(glare_mask, low_sat_mask)
+        ball_mask = cv2.bitwise_and(ball_mask, cv2.bitwise_not(glare_mask))
 
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         ball_mask = cv2.morphologyEx(ball_mask, cv2.MORPH_CLOSE, k)
         ball_mask = cv2.morphologyEx(ball_mask, cv2.MORPH_OPEN, k)
+        ball_mask = cv2.medianBlur(ball_mask, 5)
 
         # ── 3. Find contours ─────────────────────────────────────────────
         contours, _ = cv2.findContours(ball_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -122,6 +130,8 @@ class OpenCVBallDetector(BallDetector):
             r = float(np.sqrt(area / np.pi))
             cx = cx_roi + tx
             cy = cy_roi + ty
+            radius_score = float(np.clip(1.0 - abs(r - 8.0) / 8.0, 0.0, 1.0))
+            confidence = float(np.clip(0.55 * circularity + 0.45 * radius_score, 0.05, 0.99))
 
             detections.append(
                 Detection(
@@ -132,6 +142,7 @@ class OpenCVBallDetector(BallDetector):
                     w=float(r * 2),
                     h=float(r * 2),
                     category=0,          # unknown
+                    confidence=confidence,
                 )
             )
 
