@@ -105,6 +105,10 @@ const WatchPage = {
             </div>
           </div>
           <span class="fg-time" id="fgTotalTime">16:22</span>
+          <button class="fg-playbtn" id="fgSoundBtn" onclick="WatchPage._fgToggleMute()">
+            <svg id="fgSoundIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+            <svg id="fgMuteIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+          </button>
         </div>
       </div>
     `;
@@ -568,15 +572,15 @@ const WatchPage = {
     if (staticVid) staticVid.style.display = 'none';
     document.getElementById('watchPlaceholder')?.style.setProperty('display', 'none');
 
-    // Main video
+    // Main video — keep muted for autoplay policy; user can unmute via sound btn
     const main = this._fgVids.get(this._featured);
     if (main) {
       main.className = 'demo-main-video';
-      main.muted = false;
+      main.muted = true;
       mainWrap.querySelectorAll('.demo-main-video').forEach(el => { if (el !== main) el.remove(); });
       if (!mainWrap.contains(main)) mainWrap.insertBefore(main, mainWrap.firstChild);
+      main.load();
       main.play().catch(() => {
-        // autoplay blocked — show play button in unblocked state
         document.getElementById('fgPlayIcon')?.classList.remove('hidden');
         document.getElementById('fgPauseIcon')?.classList.add('hidden');
       });
@@ -617,6 +621,14 @@ const WatchPage = {
       v.currentTime = t;
     });
     this._fgUpdateTimeline(lateralT);
+  },
+
+  _fgToggleMute() {
+    const main = this._fgVids.get(1);
+    if (!main) return;
+    main.muted = !main.muted;
+    document.getElementById('fgSoundIcon')?.classList.toggle('hidden', main.muted);
+    document.getElementById('fgMuteIcon')?.classList.toggle('hidden', !main.muted);
   },
 
   _fgTogglePlay() {
