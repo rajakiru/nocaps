@@ -27,6 +27,22 @@ const ReplaysPage = {
         </div>
       </div>
 
+      <!-- Full-game 16-min replay -->
+      <div class="replay-feature-card" style="margin-top:16px" onclick="navigate('watch', { code: 'GAME02' })" style="cursor:pointer">
+        <div class="replay-feature-header">
+          <div class="replay-feature-meta">
+            <span class="replay-sport-badge">🎱 Billiards</span>
+            <span class="replay-ai-badge">FULL GAME</span>
+          </div>
+          <div class="replay-feature-title">Real Game 2 · Full 16-min</div>
+          <div class="replay-feature-sub">3 synced angles · Ball tracking · Draggable timeline</div>
+        </div>
+        <div class="replay-video-hint">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span>Tap to watch</span>
+        </div>
+      </div>
+
       <div class="replays-section-title" style="margin-top:24px">Match Replays</div>
       <div id="replaysList"></div>
     </div>`;

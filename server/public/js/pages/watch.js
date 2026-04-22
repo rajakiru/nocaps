@@ -1,8 +1,35 @@
+function _fmtTime(s) {
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+// Full-game sync constants (lateral is reference)
+const FG_OFFSETS  = { 1: 0, 2: 11, 3: 6 };   // seconds each camera is ahead of lateral
+const FG_DURATION = 982;                        // total lateral duration in seconds
+const FG_EVENTS   = [
+  { t:  32, type: 'goal'     },
+  { t:  90, type: 'goal'     },
+  { t: 195, type: 'goal'     },
+  { t: 347, type: 'goal'     },
+  { t: 384, type: 'scratch'  },
+  { t: 414, type: 'goal'     },
+  { t: 502, type: 'scratch'  },
+  { t: 503, type: 'goal'     },
+  { t: 529, type: 'goal'     },
+  { t: 581, type: 'goal'     },
+  { t: 656, type: 'scratch'  },
+  { t: 680, type: 'goal'     },
+  { t: 693, type: 'goal'     },
+  { t: 720, type: 'goal'     },
+  { t: 957, type: 'game_over'},
+];
+
 const WatchPage = {
   _match: null,
-  _pcs: new Map(),          // camNum → RTCPeerConnection
-  _camSocketIds: new Map(), // camNum → socketId
-  _streams: new Map(),      // camNum → MediaStream (so re-renders can reattach)
+  _pcs: new Map(),
+  _camSocketIds: new Map(),
+  _streams: new Map(),
   _featured: null,
   _unsubMatch: null,
   _unsubOffer: null,
@@ -10,7 +37,11 @@ const WatchPage = {
   _unsubCut: null,
   _directorOverride: false,
   _demoReady: false,
-  _demoVids: new Map(),      // camNum → <video> element, kept alive across switches
+  _demoVids: new Map(),
+  // full-game state
+  _fgVids: new Map(),        // camNum → <video>
+  _fgRaf: null,              // requestAnimationFrame handle
+  _fgDragging: false,
 
   render(params) {
     this._code = params.code;
@@ -35,8 +66,8 @@ const WatchPage = {
         <!-- Thumbnail rail for other angles -->
         <div class="watch-thumb-rail" id="watchThumbRail"></div>
 
-        <!-- Match info strip -->
-        <div class="watch-bottom">
+        <!-- Match info strip (live / demo) -->
+        <div class="watch-bottom" id="watchBottom">
           <div class="watch-match-info">
             <div class="watch-title" id="watchTitle">Loading...</div>
             <div class="watch-teams" id="watchTeams"></div>
@@ -57,6 +88,23 @@ const WatchPage = {
               <div class="watch-stat-label">Quality</div>
             </div>
           </div>
+        </div>
+
+        <!-- Full-game timeline (shown for full game replays) -->
+        <div class="fg-timeline hidden" id="fgTimeline">
+          <button class="fg-playbtn" id="fgPlayBtn" onclick="WatchPage._fgTogglePlay()">
+            <svg id="fgPlayIcon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <svg id="fgPauseIcon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" class="hidden"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+          </button>
+          <span class="fg-time" id="fgCurrentTime">0:00</span>
+          <div class="fg-bar" id="fgBar">
+            <div class="fg-bar-track">
+              <div class="fg-fill" id="fgFill"></div>
+              <div class="fg-markers" id="fgMarkers"></div>
+              <div class="fg-thumb" id="fgThumb"></div>
+            </div>
+          </div>
+          <span class="fg-time" id="fgTotalTime">16:22</span>
         </div>
       </div>
     `;
@@ -111,6 +159,7 @@ const WatchPage = {
     socket.emit('watch-match', { code: this._code }, (resp) => {
       if (resp.error) { navigate('matches'); return; }
       this._match = resp.match;
+      if (resp.match.isFullGame) { this._initFullGame(); this._updateUI(); return; }
       this._syncCameras();
       this._updateUI();
     });
@@ -139,6 +188,10 @@ const WatchPage = {
     this._demoReady = false;
     this._demoVids.forEach(v => { v.pause(); v.src = ''; });
     this._demoVids.clear();
+    if (this._fgRaf) { cancelAnimationFrame(this._fgRaf); this._fgRaf = null; }
+    this._fgVids.forEach(v => { v.pause(); v.src = ''; });
+    this._fgVids.clear();
+    this._fgDragging = false;
     this._match = null;
   },
 
@@ -445,5 +498,158 @@ const WatchPage = {
   leave() {
     this.unmount();
     navigate('matches');
+  },
+
+  // ── Full-game player ──────────────────────────────────────────
+  _initFullGame() {
+    const cameras = this._match.cameras.filter(c => c.isStreaming && c.videoSrc);
+
+    // Create persistent video elements
+    cameras.forEach(cam => {
+      const v = document.createElement('video');
+      v.src         = cam.videoSrc;
+      v.preload     = 'auto';
+      v.playsInline = true;
+      v.muted       = true;   // start muted so autoplay works; unmute cam1 after layout
+      v.dataset.camNum = String(cam.number);
+      this._fgVids.set(cam.number, v);
+    });
+
+    // Layout: featured = cam 1 (lateral/annotated)
+    this._featured = 1;
+    this._fgLayout();
+
+    // Show timeline, hide stats strip
+    document.getElementById('watchBottom')?.classList.add('hidden');
+    const tl = document.getElementById('fgTimeline');
+    if (tl) tl.classList.remove('hidden');
+
+    // Seed goal markers
+    const markers = document.getElementById('fgMarkers');
+    if (markers) {
+      markers.innerHTML = FG_EVENTS.map(ev => {
+        const pct = (ev.t / FG_DURATION * 100).toFixed(3);
+        const cls = ev.type === 'game_over' ? 'fg-marker fg-marker-end'
+                  : ev.type === 'scratch'   ? 'fg-marker fg-marker-scratch'
+                  : 'fg-marker fg-marker-goal';
+        return `<div class="${cls}" style="left:${pct}%" title="${ev.type} @ ${_fmtTime(ev.t)}"></div>`;
+      }).join('');
+    }
+
+    // Wire up the drag timeline
+    const bar = document.getElementById('fgBar');
+    if (bar) {
+      const seek = (e) => {
+        const rect = bar.getBoundingClientRect();
+        const x    = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+        const pct  = Math.max(0, Math.min(1, x / rect.width));
+        const t    = pct * FG_DURATION;
+        this._fgSeekTo(t);
+      };
+      bar.addEventListener('pointerdown', (e) => {
+        this._fgDragging = true;
+        bar.setPointerCapture(e.pointerId);
+        seek(e);
+      });
+      bar.addEventListener('pointermove', (e) => { if (this._fgDragging) seek(e); });
+      bar.addEventListener('pointerup',   () => { this._fgDragging = false; });
+    }
+
+    // Start RAF loop
+    this._fgRafLoop();
+  },
+
+  _fgLayout() {
+    const mainWrap = document.getElementById('watchMainWrap');
+    const rail     = document.getElementById('watchThumbRail');
+    if (!mainWrap || !rail) return;
+
+    const staticVid = document.getElementById('watchVideo');
+    if (staticVid) staticVid.style.display = 'none';
+    document.getElementById('watchPlaceholder')?.style.setProperty('display', 'none');
+
+    // Main video
+    const main = this._fgVids.get(this._featured);
+    if (main) {
+      main.className = 'demo-main-video';
+      main.muted = false;
+      mainWrap.querySelectorAll('.demo-main-video').forEach(el => { if (el !== main) el.remove(); });
+      if (!mainWrap.contains(main)) mainWrap.insertBefore(main, mainWrap.firstChild);
+      main.play().catch(() => {
+        // autoplay blocked — show play button in unblocked state
+        document.getElementById('fgPlayIcon')?.classList.remove('hidden');
+        document.getElementById('fgPauseIcon')?.classList.add('hidden');
+      });
+    }
+
+    // Thumbnail rail
+    rail.innerHTML = '';
+    this._fgVids.forEach((v, num) => {
+      if (num === this._featured) return;
+      v.className = '';
+      v.muted = true;
+      v.play().catch(() => {});
+      const cam = this._match.cameras.find(c => c.number === num);
+      const thumb = document.createElement('div');
+      thumb.className = 'watch-thumb';
+      thumb.onclick = () => { this._featured = num; this._fgLayout(); };
+      thumb.appendChild(v);
+      const lbl = document.createElement('div');
+      lbl.className = 'watch-thumb-label';
+      lbl.textContent = `CAM ${num} · ${cam?.role || ''}`;
+      thumb.appendChild(lbl);
+      rail.appendChild(thumb);
+    });
+    rail.style.display = this._fgVids.size > 1 ? 'flex' : 'none';
+
+    const label = document.getElementById('watchCamLabel');
+    const cam = this._match.cameras.find(c => c.number === this._featured);
+    if (label && cam) {
+      label.textContent = `CAM ${this._featured} · ${cam.role}`;
+      label.classList.remove('hidden');
+    }
+    document.getElementById('statQuality').textContent = 'HD';
+  },
+
+  _fgSeekTo(lateralT) {
+    this._fgVids.forEach((v, num) => {
+      const t = Math.max(0, lateralT + (FG_OFFSETS[num] || 0));
+      v.currentTime = t;
+    });
+    this._fgUpdateTimeline(lateralT);
+  },
+
+  _fgTogglePlay() {
+    const main = this._fgVids.get(1);
+    if (!main) return;
+    if (main.paused) {
+      this._fgVids.forEach(v => v.play().catch(() => {}));
+      document.getElementById('fgPlayIcon')?.classList.add('hidden');
+      document.getElementById('fgPauseIcon')?.classList.remove('hidden');
+    } else {
+      this._fgVids.forEach(v => v.pause());
+      document.getElementById('fgPlayIcon')?.classList.remove('hidden');
+      document.getElementById('fgPauseIcon')?.classList.add('hidden');
+    }
+  },
+
+  _fgRafLoop() {
+    const tick = () => {
+      if (!this._fgVids.size) return;
+      const lat = this._fgVids.get(1);
+      if (lat && !this._fgDragging) this._fgUpdateTimeline(lat.currentTime);
+      this._fgRaf = requestAnimationFrame(tick);
+    };
+    this._fgRaf = requestAnimationFrame(tick);
+  },
+
+  _fgUpdateTimeline(t) {
+    const pct = Math.min(1, t / FG_DURATION) * 100;
+    const fill  = document.getElementById('fgFill');
+    const thumb = document.getElementById('fgThumb');
+    const cur   = document.getElementById('fgCurrentTime');
+    if (fill)  fill.style.width = `${pct}%`;
+    if (thumb) thumb.style.left = `${pct}%`;
+    if (cur)   cur.textContent  = _fmtTime(t);
   },
 };

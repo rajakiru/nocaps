@@ -26,7 +26,29 @@ function seedDemo() {
   matches.set(DEMO_CODE, demo);
 }
 
+function seedFullGame() {
+  const fullGame: Match = {
+    code: 'GAME02',
+    title: 'Billiards – Real Game 2',
+    teamA: 'Stripes',
+    teamB: 'Solids',
+    sport: 'Billiards',
+    venue: 'CMU Game Room',
+    createdAt: new Date('2026-04-20T00:00:00Z'),
+    isLive: false,
+    isDemo: true,
+    isFullGame: true,
+    cameras: new Map([
+      [1, { socketId: 'full-1', number: 1, role: 'Lateral',  isStreaming: true, videoSrc: '/game/lateral'  }],
+      [2, { socketId: 'full-2', number: 2, role: 'Frontal',  isStreaming: true, videoSrc: '/game/frontal'  }],
+      [3, { socketId: 'full-3', number: 3, role: 'Diagonal', isStreaming: true, videoSrc: '/game/diagonal' }],
+    ]),
+  };
+  matches.set('GAME02', fullGame);
+}
+
 seedDemo();
+seedFullGame();
 
 function generateCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -59,7 +81,8 @@ function toDTO(match: Match): MatchDTO {
     createdAt: match.createdAt.toISOString(),
     isLive: match.isLive,
     cameras,
-    ...(match.isDemo ? { isDemo: true } : {}),
+    ...(match.isDemo     ? { isDemo: true }     : {}),
+    ...(match.isFullGame ? { isFullGame: true }  : {}),
   };
 }
 

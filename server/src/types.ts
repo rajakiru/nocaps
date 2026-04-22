@@ -17,6 +17,7 @@ export interface Match {
   isLive: boolean;
   cameras: Map<number, Camera>;
   isDemo?: boolean;
+  isFullGame?: boolean;
 }
 
 export interface MatchDTO {
@@ -30,6 +31,7 @@ export interface MatchDTO {
   isLive: boolean;
   cameras: CameraDTO[];
   isDemo?: boolean;
+  isFullGame?: boolean;
 }
 
 export interface CameraDTO {

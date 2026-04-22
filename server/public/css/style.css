@@ -329,6 +329,55 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .av-6 { background: #C0392B; }
 .av-7 { background: #1A535C; }
 
+/* ── Replay video hint (tap-to-watch card) ────────────────── */
+.replay-video-hint {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 24px; color: var(--text-2); font-size: 13px; font-weight: 500;
+  background: var(--card); border-radius: var(--radius-sm);
+  border: 1px dashed var(--border);
+}
+.replay-feature-card { cursor: pointer; }
+.replay-feature-card:active { opacity: 0.85; }
+
+/* ── Full-game Timeline ───────────────────────────────────── */
+.fg-timeline {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px calc(14px + var(--safe-bottom));
+  background: var(--surface); border-top: 1px solid var(--border);
+  flex-shrink: 0; user-select: none; touch-action: none;
+}
+.fg-playbtn { background: none; border: none; color: var(--text); cursor: pointer; padding: 4px; display: flex; align-items: center; flex-shrink: 0; }
+.fg-playbtn:active { opacity: 0.7; }
+.fg-time { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; min-width: 38px; flex-shrink: 0; }
+.fg-bar {
+  flex: 1; position: relative; cursor: pointer;
+  padding: 12px 0; margin: -12px 0; box-sizing: content-box;
+}
+.fg-bar-track {
+  height: 4px; background: var(--border); border-radius: 2px; position: relative;
+}
+.fg-fill {
+  position: absolute; top: 0; left: 0; height: 100%;
+  background: var(--primary); border-radius: 2px; pointer-events: none; width: 0%;
+}
+.fg-markers { position: absolute; top: 0; left: 0; right: 0; height: 100%; pointer-events: none; }
+.fg-marker {
+  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--surface);
+}
+.fg-marker-goal    { background: var(--red); }
+.fg-marker-scratch { background: #F59E0B; }
+.fg-marker-end     { background: #8B5CF6; }
+.fg-thumb {
+  position: absolute; top: 50%; left: 0%;
+  transform: translate(-50%, calc(-50% - 2px));
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; pointer-events: none;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.6);
+  transition: transform 0.08s;
+}
+.fg-bar:active .fg-thumb { transform: translate(-50%, calc(-50% - 2px)) scale(1.3); }
+
 /* ── Scrollbar ────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
