@@ -14,8 +14,13 @@ from typing import List, Optional
 
 import cv2
 import numpy as np
+try:
+    from tqdm.auto import tqdm
+except ImportError:  # pragma: no cover - optional dependency
+    tqdm = None
 
 from .calibration import estimate_video_calibration, normalize_frame, save_calibration
+from .detection_loader import Detection
 from .detection_filter import (
     estimate_expected_ball_radius,
     filter_detections,
@@ -35,6 +40,10 @@ from .yolo_detector import YOLOBallDetector
 DEFAULT_YOLO_MODEL_PATH = str(
     Path(__file__).resolve().parent.parent / "models" / "generic_ball_model.pt"
 )
+GHOST_TRACK_SPEED_PX = 220.0
+GHOST_TRACK_MAX_MISSING = 3
+GHOST_TRACK_CONFIDENCE = 0.22
+GHOST_NEAR_POCKET_SPEED_PX = 100.0
 
 
 def _draw_balls(frame: np.ndarray, tracks, trail_length: int = 20) -> np.ndarray:
@@ -120,8 +129,13 @@ def _save_event_clip(
     label_prefix: str = "goal",
 ) -> dict:
     width, height = frame_size
-    folder_name = f"{label_prefix}_frame{event.frame_id:04d}_{event.label.replace(' ', '_').lower()}"
-    event_dir = out_dir / folder_name
+    parent_dir = out_dir / ("goals" if label_prefix == "goal" else "candidates")
+    parent_dir.mkdir(exist_ok=True)
+    safe_label = event.label.replace(" ", "_").lower()
+    folder_name = (
+        f"{label_prefix}_frame{event.frame_id:04d}_t{event.time_s:07.3f}s_{safe_label}"
+    )
+    event_dir = parent_dir / folder_name
     event_dir.mkdir(exist_ok=True)
 
     cap = cv2.VideoCapture(str(target_video))
@@ -181,6 +195,45 @@ def _save_event_clip(
 
     cap.release()
     writer.release()
+
+    metadata = {
+        "type": label_prefix,
+        "pocket": event.label,
+        "pocket_idx": event.pocket_idx,
+        "frame": event.frame_id,
+        "time_s": round(float(event.time_s), 3),
+        "track_id": event.track_id,
+        "confidence": round(float(event.confidence), 3),
+        "peak_activity": round(float(event.peak_activity), 3),
+        "roi_activity": round(float(event.roi_activity), 3),
+        "nearby_track_ids": event.nearby_track_ids,
+        "clip_start_frame": clip_start,
+        "clip_end_frame": clip_end,
+        "clip_path": clip_path,
+        "stills": saved_stills,
+    }
+    with open(event_dir / "event_info.json", "w") as fh:
+        json.dump(metadata, fh, indent=2)
+    with open(event_dir / "event_info.txt", "w") as fh:
+        fh.write(
+            "\n".join(
+                [
+                    f"type: {label_prefix}",
+                    f"pocket: {event.label}",
+                    f"pocket_idx: {event.pocket_idx}",
+                    f"frame: {event.frame_id}",
+                    f"time_s: {event.time_s:.3f}",
+                    f"track_id: {event.track_id}",
+                    f"confidence: {event.confidence:.3f}",
+                    f"peak_activity: {event.peak_activity:.3f}",
+                    f"roi_activity: {event.roi_activity:.3f}",
+                    f"clip_start_frame: {clip_start}",
+                    f"clip_end_frame: {clip_end}",
+                    f"clip_path: {clip_path}",
+                ]
+            )
+        )
+
     return {
         "folder": str(event_dir),
         "clip": clip_path,
@@ -208,6 +261,80 @@ def _print_goal_summary(summary: List[dict], out_dir: Path) -> None:
     print(f"\n  Debug summaries → {out_dir}")
 
 
+def _normalize_debug_token(token: str) -> str:
+    return token.strip().lower().replace("_", "-").replace(" ", "-")
+
+
+def _resolve_debug_pockets(requested: Optional[List[str]], rois: List[dict]) -> List[str]:
+    if not requested:
+        return []
+
+    resolved: List[str] = []
+    by_label = {_normalize_debug_token(roi["label"]): roi["label"] for roi in rois}
+
+    for raw in requested:
+        for token in raw.split(","):
+            token = token.strip()
+            if not token:
+                continue
+            if token.isdigit():
+                idx = int(token) - 1
+                if 0 <= idx < len(rois):
+                    resolved.append(rois[idx]["label"])
+                else:
+                    print(f"  Warning: debug pocket index out of range: {token}")
+                continue
+
+            key = _normalize_debug_token(token)
+            label = by_label.get(key)
+            if label is None:
+                print(f"  Warning: unknown debug pocket: {token}")
+                continue
+            resolved.append(label)
+
+    return sorted(set(resolved))
+
+
+def _augment_with_ghost_detections(
+    detections: List[Detection],
+    prior_tracks,
+    frame_id: int,
+    fps: float,
+) -> List[Detection]:
+    augmented = list(detections)
+    for track in prior_tracks:
+        if track.missing_frames > GHOST_TRACK_MAX_MISSING:
+            continue
+        if len(track.velocities) == 0:
+            continue
+        speed = max(float(np.hypot(vx, vy)) for _, vx, vy in track.velocities[-4:])
+        speed_threshold = GHOST_NEAR_POCKET_SPEED_PX if track.near_pocket_idx is not None else GHOST_TRACK_SPEED_PX
+        if speed < speed_threshold:
+            continue
+
+        radius = max(track.radius, 6.0)
+        _, vx, vy = track.velocities[-1]
+        dt = max(track.missing_frames + 1, 1) / max(fps, 1e-6)
+        pred_cx = track.cx + vx * dt * 0.85
+        pred_cy = track.cy + vy * dt * 0.85
+        if any(np.hypot(det.cx - pred_cx, det.cy - pred_cy) <= radius * 1.8 for det in detections):
+            continue
+
+        augmented.append(
+            Detection(
+                frame_id=frame_id,
+                ball_id=-100000 - track.id,
+                x=pred_cx - radius,
+                y=pred_cy - radius,
+                w=radius * 2.0,
+                h=radius * 2.0,
+                category=track.category,
+                confidence=GHOST_TRACK_CONFIDENCE,
+            )
+        )
+    return augmented
+
+
 def _reset_output_dir(out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     for child in out_dir.iterdir():
@@ -229,6 +356,7 @@ def run_full_pipeline(
     yolo_iou: float = 0.45,
     yolo_imgsz: int = 1024,
     yolo_device: Optional[str] = None,
+    debug_pockets: Optional[List[str]] = None,
 ):
     if start_s is not None or end_s is not None:
         cap = cv2.VideoCapture(input_path)
@@ -263,6 +391,9 @@ def run_full_pipeline(
     rois = select_pocket_rois(str(clip_dir), force_reselect=force_reselect)
     if not rois:
         sys.exit("No pocket ROIs — exiting.")
+    resolved_debug_pockets = _resolve_debug_pockets(debug_pockets, rois)
+    if resolved_debug_pockets:
+        print(f"  Pocket debug enabled for: {', '.join(resolved_debug_pockets)}")
 
     with VideoLoader(str(target_video)) as loader:
         info = loader.info
@@ -318,7 +449,8 @@ def run_full_pipeline(
             max_candidate_frames=25,
             confirm_missing_frames=2,
             reappear_window_frames=6,
-            cooldown_frames=60,
+            cooldown_frames=18,
+            debug_pockets=resolved_debug_pockets,
         )
 
         annotated_path = str(out_dir / f"{base_name}_annotated.mp4")
@@ -341,64 +473,86 @@ def run_full_pipeline(
         expected_radius: Optional[float] = None
 
         print("\n  Processing frames...")
-        for frame_id, frame in loader.frames():
-            calibrated = normalize_frame(frame, calibration)
-            raw_detections = ball_detector.detect(calibrated, frame_id)
-            expected_radius = estimate_expected_ball_radius(raw_detections, expected_radius)
-            detections = filter_detections(raw_detections, table_bbox, rois, expected_radius)
-            tracks = tracker.update(detections, frame_id)
-            visible_tracks = [track for track in tracks if track.visible]
-            trajectories.update(visible_tracks, frame_id)
-            event_tracks = filter_tracks_for_events(visible_tracks, rois, trajectories)
+        progress = None
+        try:
+            for frame_id, frame in loader.frames():
+                calibrated = normalize_frame(frame, calibration)
+                prior_tracks = tracker.all_tracks()
+                raw_detections = ball_detector.detect(calibrated, frame_id)
+                raw_detections = _augment_with_ghost_detections(raw_detections, prior_tracks, frame_id, info.fps)
+                expected_radius = estimate_expected_ball_radius(raw_detections, expected_radius)
+                detections = filter_detections(raw_detections, table_bbox, rois, expected_radius)
+                tracks = tracker.update(detections, frame_id)
+                visible_tracks = [track for track in tracks if track.visible]
+                trajectories.update(visible_tracks, frame_id)
+                event_tracks = filter_tracks_for_events(visible_tracks, rois, trajectories)
 
-            goal_events = pocket_detector.process_frame(
-                calibrated,
-                frame_id,
-                visible_tracks=event_tracks,
-                all_tracks=tracker.all_tracks(),
-            )
-            for event in goal_events:
-                all_goals.append(event)
-                active_flashes.append((frame_id + int(info.fps * 1.5), event.pocket_idx))
-                print(
-                    f"\n  *** GOAL *** {event.label}"
-                    f"  frame={event.frame_id}"
-                    f"  track={event.track_id}"
-                    f"  conf={event.confidence:.2f}"
+                goal_events = pocket_detector.process_frame(
+                    calibrated,
+                    frame_id,
+                    visible_tracks=event_tracks,
+                    all_tracks=tracker.all_tracks(),
                 )
+                for event in goal_events:
+                    all_goals.append(event)
+                    active_flashes.append((frame_id + int(info.fps * 1.5), event.pocket_idx))
+                    print(
+                        f"\n  *** GOAL *** {event.label}"
+                        f"  frame={event.frame_id}"
+                        f"  track={event.track_id}"
+                        f"  conf={event.confidence:.2f}"
+                    )
 
-            active_flashes = [(expires, pocket_idx) for expires, pocket_idx in active_flashes if frame_id <= expires]
-            fired = {pocket_idx for _, pocket_idx in active_flashes}
-            annotated = _draw_rois(frame, rois, fired_idxs=fired, flash=bool(fired))
-            if fired:
-                cv2.rectangle(annotated, (3, 3), (info.width - 3, info.height - 3), (0, 50, 255), 3)
-            annotated = _draw_balls(annotated, visible_tracks)
-            overlay = annotated.copy()
-            cv2.rectangle(overlay, (0, 0), (info.width, 38), (10, 10, 10), -1)
-            cv2.addWeighted(overlay, 0.6, annotated, 0.4, 0, annotated)
-            event_labels = [f"{event.label} (T{event.track_id})" for event in all_goals if event.frame_id == frame_id]
-            hud_tag = f"GOAL! {', '.join(event_labels)}" if event_labels else ""
-            hud_color = (0, 50, 255) if event_labels else (200, 200, 200)
-            cv2.putText(
-                annotated,
-                f"Frame {frame_id}  {frame_id / info.fps:.2f}s  tracks={len(visible_tracks)}  {hud_tag}",
-                (10, 26),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
-                hud_color,
-                1,
-                cv2.LINE_AA,
-            )
-            writer.write(annotated)
-            debug_writer.write(_draw_detector_debug(frame, detections, visible_tracks, table_bbox))
-
-            if frame_id % 300 == 0:
-                print(
-                    f"    frame {frame_id}/{info.frame_count}"
-                    f"  ({frame_id / info.fps:.0f}s)"
-                    f"  visible_tracks={len(visible_tracks)}",
-                    flush=True,
+                active_flashes = [(expires, pocket_idx) for expires, pocket_idx in active_flashes if frame_id <= expires]
+                fired = {pocket_idx for _, pocket_idx in active_flashes}
+                annotated = _draw_rois(frame, rois, fired_idxs=fired, flash=bool(fired))
+                if fired:
+                    cv2.rectangle(annotated, (3, 3), (info.width - 3, info.height - 3), (0, 50, 255), 3)
+                annotated = _draw_balls(annotated, visible_tracks)
+                overlay = annotated.copy()
+                cv2.rectangle(overlay, (0, 0), (info.width, 38), (10, 10, 10), -1)
+                cv2.addWeighted(overlay, 0.6, annotated, 0.4, 0, annotated)
+                event_labels = [f"{event.label} (T{event.track_id})" for event in all_goals if event.frame_id == frame_id]
+                hud_tag = f"GOAL! {', '.join(event_labels)}" if event_labels else ""
+                hud_color = (0, 50, 255) if event_labels else (200, 200, 200)
+                cv2.putText(
+                    annotated,
+                    f"Frame {frame_id}  {frame_id / info.fps:.2f}s  tracks={len(visible_tracks)}  {hud_tag}",
+                    (10, 26),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.55,
+                    hud_color,
+                    1,
+                    cv2.LINE_AA,
                 )
+                writer.write(annotated)
+                debug_writer.write(_draw_detector_debug(frame, detections, visible_tracks, table_bbox))
+
+                if tqdm is not None and progress is None and pocket_detector._bg_built:
+                    progress = tqdm(
+                        total=info.frame_count,
+                        desc="Frames",
+                        unit="frame",
+                        dynamic_ncols=True,
+                        initial=frame_id + 1,
+                    )
+                    progress.set_postfix_str(
+                        f"tracks={len(visible_tracks)} goals={len(all_goals)}",
+                        refresh=False,
+                    )
+                elif progress is not None:
+                    progress.update(1)
+                    progress.set_postfix_str(f"tracks={len(visible_tracks)} goals={len(all_goals)}", refresh=False)
+                elif frame_id % 300 == 0:
+                    print(
+                        f"    frame {frame_id}/{info.frame_count}"
+                        f"  ({frame_id / info.fps:.0f}s)"
+                        f"  visible_tracks={len(visible_tracks)}",
+                        flush=True,
+                    )
+        finally:
+            if progress is not None:
+                progress.close()
 
         writer.release()
         debug_writer.release()
@@ -465,6 +619,15 @@ def run_full_pipeline(
     with open(out_dir / "rejected_pocket_candidates.json", "w") as fh:
         json.dump(rejected_review, fh, indent=2)
 
+    debug_summary = pocket_detector.debug_summary()
+    if debug_summary:
+        debug_dir = out_dir / "debug"
+        debug_dir.mkdir(exist_ok=True)
+        for pocket_label, rows in debug_summary.items():
+            filename = f"pocket_{_normalize_debug_token(pocket_label)}.json"
+            with open(debug_dir / filename, "w") as fh:
+                json.dump(rows, fh, indent=2)
+
     _print_goal_summary(summary, out_dir)
 
 
@@ -481,6 +644,7 @@ def main(argv=None):
     parser.add_argument("--yolo-iou", type=float, default=0.45)
     parser.add_argument("--yolo-imgsz", type=int, default=1024)
     parser.add_argument("--yolo-device", default=None)
+    parser.add_argument("--debug-pocket", action="append", default=[])
     args = parser.parse_args(argv)
 
     if not os.path.isfile(args.input):
@@ -498,6 +662,7 @@ def main(argv=None):
         yolo_iou=args.yolo_iou,
         yolo_imgsz=args.yolo_imgsz,
         yolo_device=args.yolo_device,
+        debug_pockets=args.debug_pocket,
     )
     print("\nDone.")
 

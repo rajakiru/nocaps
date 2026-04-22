@@ -82,7 +82,7 @@ def _draw(base: np.ndarray, radius: int) -> np.ndarray:
     cv2.addWeighted(overlay, 0.65, out, 0.35, 0, out)
     cv2.putText(out, msg, (14, h - 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.58, color, 1, cv2.LINE_AA)
-    cv2.putText(out, "Backspace = undo    R = reset    Enter/S = save    Q/Esc = quit",
+    cv2.putText(out, "Backspace/Delete/U = undo    R = reset    Enter/S = save    Q/Esc = quit",
                 (14, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (160, 160, 160), 1, cv2.LINE_AA)
 
     # legend
@@ -150,7 +150,7 @@ def select_pocket_rois(
         elif key in (27, ord("q")):                 # Esc / Q
             break
 
-        elif key == 8:                              # Backspace — undo
+        elif key in (8, 127, ord("u")):            # Backspace/Delete/U — undo
             idx = _st.current - 1
             if idx >= 0:
                 _st.points[idx] = None
